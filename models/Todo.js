@@ -5,6 +5,18 @@ const subtaskSchema = new mongoose.Schema({
   completed: { type: Boolean, default: false },
 });
 
+const attachmentSchema = new mongoose.Schema({
+  // kind distinguishes images from other files for UI treatment (thumbnail vs icon).
+  kind: { type: String, enum: ['image', 'file'], required: true },
+  // Path relative to the uploads dir; served at /uploads/<path>.
+  path: { type: String, required: true },
+  url: { type: String, required: true },
+  name: { type: String, required: true },
+  mimeType: { type: String },
+  size: { type: Number },
+  uploadedAt: { type: Date, default: Date.now },
+}, { _id: true });
+
 const todoSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -85,6 +97,14 @@ const todoSchema = new mongoose.Schema({
   order: {
     type: Number,
     default: 0,
+  },
+  attachments: {
+    type: [attachmentSchema],
+    default: [],
+    validate: [
+      (arr) => arr.length <= 10,
+      'A task can have at most 10 attachments',
+    ],
   },
 }, {
   timestamps: true,

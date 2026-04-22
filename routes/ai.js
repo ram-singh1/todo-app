@@ -1,15 +1,18 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { protect } = require('../middleware/auth');
+const { checkAIQuota, requirePremium } = require('../middleware/premium');
 const Todo = require('../models/Todo');
 const Diary = require('../models/Diary');
 const { decrypt } = require('../utils/encryption');
 
 const router = express.Router();
 router.use(protect);
+router.use(checkAIQuota);
 
 // Helper: Call OpenAI (gracefully degrades if no API key)
-async function callAI(messages, maxTokens = 500) {
+// Premium users get a stronger model when available.
+async function callAI(messages, maxTokens = 500, isPremium = false) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || apiKey === 'your_openai_api_key_here') {
     return null; // Fallback mode
@@ -19,8 +22,12 @@ async function callAI(messages, maxTokens = 500) {
     const { default: OpenAI } = await import('openai');
     const openai = new OpenAI({ apiKey });
 
+    const model = isPremium
+      ? (process.env.OPENAI_PRO_MODEL || 'gpt-4o-mini')
+      : (process.env.OPENAI_FREE_MODEL || 'gpt-3.5-turbo');
+
     const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model,
       messages,
       max_tokens: maxTokens,
       temperature: 0.7,
@@ -92,7 +99,7 @@ router.post('/generate-tasks', [
     ];
 
     let tasks;
-    const aiResponse = await callAI(aiPrompt, 800);
+    const aiResponse = await callAI(aiPrompt, 800, req.user.isPremium());
 
     if (aiResponse) {
       try {
@@ -150,7 +157,7 @@ router.post('/smart-suggest', async (req, res) => {
       },
     ];
 
-    const aiResponse = await callAI(aiPrompt, 600);
+    const aiResponse = await callAI(aiPrompt, 600, req.user.isPremium());
 
     if (aiResponse) {
       try {
@@ -206,7 +213,7 @@ router.post('/analyze-diary', [
       },
     ];
 
-    const aiResponse = await callAI(aiPrompt, 400);
+    const aiResponse = await callAI(aiPrompt, 400, req.user.isPremium());
 
     if (aiResponse) {
       try {
@@ -266,7 +273,7 @@ router.post('/prioritize', async (req, res) => {
       },
     ];
 
-    const aiResponse = await callAI(aiPrompt, 400);
+    const aiResponse = await callAI(aiPrompt, 400, req.user.isPremium());
 
     if (aiResponse) {
       try {
@@ -296,6 +303,69 @@ router.post('/prioritize', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to prioritize tasks' });
+  }
+});
+
+// @route   POST /api/ai/coach  (Pro/Ultimate only)
+// Chat-style conversational coach. Accepts recent messages as context.
+router.post('/coach', requirePremium, [
+  body('messages').isArray({ min: 1, max: 20 }),
+  body('messages.*.role').isIn(['user', 'assistant']),
+  body('messages.*.content').isString().isLength({ max: 2000 }),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { messages } = req.body;
+
+    // Pull short context from the user's state (for relevant coaching)
+    const [pendingCount, recentDiary] = await Promise.all([
+      Todo.countDocuments({ user: req.user._id, completed: false }),
+      Diary.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(3).select('mood createdAt'),
+    ]);
+    const recentMoods = recentDiary.map(d => d.mood).join(', ') || 'none';
+
+    const systemPrompt = {
+      role: 'system',
+      content: [
+        'You are "Sage", a warm and practical productivity + wellness coach for a Todo & Diary app.',
+        'Style: concise, empathetic, action-oriented. Use 2–4 short paragraphs max.',
+        'Always end with ONE concrete next step the user can do in under 5 minutes.',
+        'Use one light emoji per paragraph, no more. Never invent app features.',
+        `Context about the user: name=${req.user.name}, pending_tasks=${pendingCount}, streak=${req.user.streak?.current || 0}, recent_moods=[${recentMoods}].`,
+      ].join('\n'),
+    };
+
+    const aiResponse = await callAI(
+      [systemPrompt, ...messages],
+      500,
+      req.user.isPremium(),
+    );
+
+    if (aiResponse) {
+      return res.json({ success: true, reply: aiResponse.trim() });
+    }
+
+    // Fallback without API key — rule-based coach reply
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    const text = (lastUser?.content || '').toLowerCase();
+    let reply;
+    if (/stuck|tired|overwhelm|stress/.test(text)) {
+      reply = `I hear you — feeling stuck is real. 🌿\n\nLet's shrink the problem. Pick ONE of your ${pendingCount} tasks and break it into a 2-minute first step.\n\nNext step: open your Tasks tab and tap the smallest one.`;
+    } else if (/plan|today|schedule/.test(text)) {
+      reply = `Here's a simple plan: start with your top priority (30 min), take a 5-min break, and end the block with a quick wins list. ✨\n\nNext step: open Focus Mode and start a 25-minute session.`;
+    } else if (/motiv|push|focus/.test(text)) {
+      reply = `Momentum beats motivation. 🔥 Every checkmark is proof. You've built a ${req.user.streak?.current || 0}-day streak — don't break the chain today.\n\nNext step: complete any ONE task in the next 10 minutes.`;
+    } else {
+      reply = `Got it. 🌱 Reflect on what you want by the end of today, pick the single most useful action, and start a focus session.\n\nNext step: jot a one-line intention in your diary.`;
+    }
+    res.json({ success: true, reply, fallback: true });
+  } catch (error) {
+    console.error('Coach error:', error.message);
+    res.status(500).json({ success: false, message: 'Coach is unavailable right now' });
   }
 });
 

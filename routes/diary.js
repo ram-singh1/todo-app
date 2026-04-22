@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const Diary = require('../models/Diary');
 const { protect } = require('../middleware/auth');
 const { encrypt, decrypt } = require('../utils/encryption');
+const { getLimitsForPlan } = require('../middleware/premium');
 
 const router = express.Router();
 router.use(protect);
@@ -140,6 +141,18 @@ router.post('/', [
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const limits = getLimitsForPlan(req.user.subscription?.plan || 'free');
+    if (limits.maxDiaryEntries !== Infinity) {
+      const count = await Diary.countDocuments({ user: req.user._id });
+      if (count >= limits.maxDiaryEntries) {
+        return res.status(402).json({
+          success: false,
+          code: 'DIARY_LIMIT_REACHED',
+          message: `Free plan allows ${limits.maxDiaryEntries} entries. Upgrade for unlimited journaling.`,
+        });
+      }
     }
 
     const diaryData = { ...req.body, user: req.user._id };

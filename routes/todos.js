@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Todo = require('../models/Todo');
 const { protect } = require('../middleware/auth');
+const { getLimitsForPlan } = require('../middleware/premium');
 
 const router = express.Router();
 router.use(protect);
@@ -95,6 +96,18 @@ router.post('/', [
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const limits = getLimitsForPlan(req.user.subscription?.plan || 'free');
+    if (limits.maxTodos !== Infinity) {
+      const count = await Todo.countDocuments({ user: req.user._id });
+      if (count >= limits.maxTodos) {
+        return res.status(402).json({
+          success: false,
+          code: 'TODO_LIMIT_REACHED',
+          message: `Free plan allows ${limits.maxTodos} tasks. Upgrade for unlimited tasks.`,
+        });
+      }
     }
 
     const todoData = { ...req.body, user: req.user._id };
