@@ -17,7 +17,6 @@ const PLANS = [
     priceYearly: 0,
     badge: null,
     features: [
-      '10 AI requests / month',
       '50 todos & 30 diary entries',
       '6 glass themes',
       'Encrypted diary (AES-256)',
@@ -34,12 +33,10 @@ const PLANS = [
     priceYearly: 39.99,
     badge: 'MOST POPULAR',
     features: [
-      '500 AI requests / month',
       'Unlimited todos & entries',
-      'All 16 liquid glass themes',
+      'All 17 liquid glass themes',
       'Advanced analytics & charts',
       'PDF & Markdown export',
-      'Priority AI (GPT-4 class)',
       'Widget-ready dashboard',
       'Custom recurring reminders',
     ],
@@ -53,12 +50,10 @@ const PLANS = [
     priceYearly: 79.99,
     badge: 'BEST VALUE',
     features: [
-      'Unlimited AI requests',
       'Everything in Pro',
       'Premium voice models',
       'Early access to new features',
       'Cloud backup & sync',
-      'Personal AI coach',
       'Priority support',
     ],
     featured: false,
@@ -81,7 +76,6 @@ router.get('/status', async (req, res) => {
     },
     usage: req.user.usage,
     limits: {
-      aiCallsPerMonth: limits.aiCallsPerMonth === Infinity ? null : limits.aiCallsPerMonth,
       exportsPerMonth: limits.exportsPerMonth === Infinity ? null : limits.exportsPerMonth,
       maxTodos: limits.maxTodos === Infinity ? null : limits.maxTodos,
       maxDiaryEntries: limits.maxDiaryEntries === Infinity ? null : limits.maxDiaryEntries,

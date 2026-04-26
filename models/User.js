@@ -27,13 +27,18 @@ const userSchema = new mongoose.Schema({
   avatar: {
     type: String,
     default: '😀',
-    maxlength: 4,
+    // Stores either a single emoji (1–4 chars), an "__icon_<id>" code,
+    // or a "__photo_<url>" pointer to an uploaded image. URLs make this
+    // intentionally long, so no hard maxlength.
+    maxlength: 1024,
   },
   theme: {
     type: String,
     default: 'aurora',
     enum: ['aurora', 'sunset', 'ocean', 'forest', 'lavender', 'midnight', 'rose', 'cosmic',
-           'zen', 'rainyDay', 'sakura', 'northern', 'warmCandle', 'deepSea', 'dreamyPastel', 'starryNight'],
+           'zen', 'rainyDay', 'sakura', 'northern', 'warmCandle', 'deepSea', 'dreamyPastel', 'starryNight',
+           'mountainGlass', 'sunriseScene', 'galaxyScene', 'twilightScene', 'emeraldScene', 'coralScene',
+           'daylight', 'paperMint', 'cream', 'porcelain'],
   },
   notificationsEnabled: {
     type: Boolean,
@@ -56,8 +61,6 @@ const userSchema = new mongoose.Schema({
 
   // ── Usage tracking (for free-tier limits) ──
   usage: {
-    aiCallsThisMonth: { type: Number, default: 0 },
-    aiCallsResetAt: { type: Date, default: Date.now },
     exportsThisMonth: { type: Number, default: 0 },
     exportsResetAt: { type: Date, default: Date.now },
     diaryEntries: { type: Number, default: 0 },

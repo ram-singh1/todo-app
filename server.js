@@ -8,19 +8,43 @@ const connectDB = require('./config/db');
 const cron = require('node-cron');
 const Todo = require('./models/Todo');
 
+// Fail fast in production if critical secrets are missing — easier to debug
+// in Render's deploy logs than a runtime crash 30 minutes later.
+if (process.env.NODE_ENV === 'production') {
+  const required = ['MONGODB_URI', 'JWT_SECRET'];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error(`❌ Missing required env vars: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+}
+
 const app = express();
 
 // Connect to database
 connectDB();
 
-// Trust proxy (needed for correct IP behind reverse proxy / rate-limit)
+// Trust proxy (needed for correct IP behind Render's reverse proxy so the
+// rate limiter sees real client IPs rather than 127.0.0.1).
 app.set('trust proxy', 1);
 
 // Middleware
 // helmet's default CSP blocks cross-origin embedding of images; relax that for
 // the /uploads route so the mobile app can render attachments.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors());
+
+// CORS: comma-separated allowlist via CORS_ORIGINS, or fully open if unset.
+// A public mobile API typically needs `*` since auth is JWT-based; tightening
+// is opt-in for users who deploy a web client too.
+const corsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(cors({
+  origin: corsOrigins.length > 0 ? corsOrigins : true,
+  credentials: true,
+}));
+
 app.use(express.json({ limit: '10mb' }));
 
 // Serve user uploads statically. Keep this BEFORE the generalLimiter so that
@@ -55,21 +79,23 @@ app.use('/api/auth/signup', authLimiter);
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/todos', require('./routes/todos'));
 app.use('/api/diary', require('./routes/diary'));
-app.use('/api/ai', require('./routes/ai'));
+app.use('/api/habits', require('./routes/habits'));
 app.use('/api/subscription', require('./routes/subscription'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/uploads', require('./routes/uploads'));
 
-// Health check
-app.get('/api/health', (req, res) => {
+// Health check (both / and /api/health work — Render health-checks the root).
+const healthHandler = (req, res) => {
   res.json({
     success: true,
-    message: 'AI Todo & Diary API is running',
+    message: 'Todo & Diary API is running',
     version: '2.0.0',
     timestamp: new Date(),
   });
-});
+};
+app.get('/', healthHandler);
+app.get('/api/health', healthHandler);
 
 // 404 handler
 app.use('/api/*', (req, res) => {

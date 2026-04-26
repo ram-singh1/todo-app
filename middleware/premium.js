@@ -1,49 +1,53 @@
 const FREE_LIMITS = {
-  aiCallsPerMonth: 10,
   exportsPerMonth: 0,
   maxTodos: 50,
   maxDiaryEntries: 30,
+  maxHabits: 3,
   allowedThemes: ['aurora', 'sunset', 'ocean', 'forest', 'midnight', 'rose', 'daylight'],
   advancedAnalytics: false,
   pdfExport: false,
   customReminders: true,
   voiceTTS: true,
+  appLock: false,
 };
 
 const TRIAL_LIMITS = {
-  aiCallsPerMonth: 100,
   exportsPerMonth: 10,
   maxTodos: Infinity,
   maxDiaryEntries: Infinity,
+  maxHabits: Infinity,
   allowedThemes: 'all',
   advancedAnalytics: true,
   pdfExport: true,
   customReminders: true,
   voiceTTS: true,
+  appLock: true,
 };
 
 const PRO_LIMITS = {
-  aiCallsPerMonth: 500,
   exportsPerMonth: 50,
   maxTodos: Infinity,
   maxDiaryEntries: Infinity,
+  maxHabits: Infinity,
   allowedThemes: 'all',
   advancedAnalytics: true,
   pdfExport: true,
   customReminders: true,
   voiceTTS: true,
+  appLock: true,
 };
 
 const ULTIMATE_LIMITS = {
-  aiCallsPerMonth: Infinity,
   exportsPerMonth: Infinity,
   maxTodos: Infinity,
   maxDiaryEntries: Infinity,
+  maxHabits: Infinity,
   allowedThemes: 'all',
   advancedAnalytics: true,
   pdfExport: true,
   customReminders: true,
   voiceTTS: true,
+  appLock: true,
 };
 
 function getLimitsForPlan(plan) {
@@ -57,12 +61,10 @@ function getLimitsForPlan(plan) {
 
 function resetMonthlyUsageIfNeeded(user) {
   const now = new Date();
-  const resetAt = user.usage?.aiCallsResetAt ? new Date(user.usage.aiCallsResetAt) : now;
+  const resetAt = user.usage?.exportsResetAt ? new Date(user.usage.exportsResetAt) : now;
   const daysSinceReset = (now - resetAt) / (1000 * 60 * 60 * 24);
   if (daysSinceReset >= 30) {
-    user.usage.aiCallsThisMonth = 0;
     user.usage.exportsThisMonth = 0;
-    user.usage.aiCallsResetAt = now;
     user.usage.exportsResetAt = now;
   }
 }
@@ -80,28 +82,6 @@ const requirePremium = (req, res, next) => {
       upgradeUrl: '/upgrade',
     });
   }
-  next();
-};
-
-// Check AI quota before calling AI endpoints
-const checkAIQuota = async (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ success: false, message: 'Authentication required' });
-  }
-  resetMonthlyUsageIfNeeded(req.user);
-  const limits = getLimitsForPlan(req.user.subscription?.plan || 'free');
-  const used = req.user.usage?.aiCallsThisMonth || 0;
-  if (used >= limits.aiCallsPerMonth) {
-    return res.status(429).json({
-      success: false,
-      code: 'AI_QUOTA_EXCEEDED',
-      message: `You've used your ${limits.aiCallsPerMonth} AI requests for this month. Upgrade for more.`,
-      used,
-      limit: limits.aiCallsPerMonth,
-    });
-  }
-  req.user.usage.aiCallsThisMonth = used + 1;
-  await req.user.save();
   next();
 };
 
@@ -129,7 +109,6 @@ const checkExportQuota = async (req, res, next) => {
 
 module.exports = {
   requirePremium,
-  checkAIQuota,
   checkExportQuota,
   getLimitsForPlan,
   FREE_LIMITS,

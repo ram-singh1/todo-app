@@ -1,2 +1,28 @@
+# Dependencies
 node_modules/
+
+# Environment files (never commit secrets)
 .env
+.env.local
+.env.*.local
+
+# Uploads (legacy local-disk path; Cloudinary handles persistence in prod).
+# Keep the directory itself out of git so dev runs don't pollute history.
+uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Coverage / test output
+coverage/
+.nyc_output/

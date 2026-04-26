@@ -1,0 +1,41 @@
+# Render Blueprint — one-click deploy.
+# After connecting this repo on render.com, Render reads this file and creates
+# the Web Service automatically. You only need to fill in the secret env vars
+# (MONGODB_URI, JWT_SECRET, etc.) in the dashboard once.
+#
+# Free tier notes:
+#   - "starter"-class is the free Web Service. Sleeps after 15 min idle.
+#   - Disk is ephemeral; uploads must use Cloudinary (configured via env vars).
+#   - Health check on / lets Render know the service started cleanly.
+
+services:
+  - type: web
+    name: todo-bknd
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRE
+        value: 30d
+      # Generated once by Render and reused on every deploy.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      # Filled in via the Render dashboard after the first deploy.
+      - key: MONGODB_URI
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

@@ -4,7 +4,8 @@ const { protect } = require('../middleware/auth');
 const { requirePremium, checkExportQuota } = require('../middleware/premium');
 const Todo = require('../models/Todo');
 const Diary = require('../models/Diary');
-const { decrypt } = require('../utils/encryption');
+const Habit = require('../models/Habit');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 const router = express.Router();
 router.use(protect);
@@ -149,6 +150,63 @@ router.get('/todos', checkExportQuota, [
   } catch (error) {
     console.error('Todos export error:', error.message);
     res.status(500).json({ success: false, message: 'Export failed' });
+  }
+});
+
+// @route   GET /api/export/backup
+// Full encrypted backup: every todo, diary entry (already-decrypted so the
+// backup is self-contained), and habit. The whole payload is then re-
+// encrypted with AES-256-GCM using the server's ENCRYPTION_KEY. The user
+// can save the resulting blob locally; restoring is a future feature.
+router.get('/backup', checkExportQuota, async (req, res) => {
+  try {
+    const [todos, diaryEntries, habits] = await Promise.all([
+      Todo.find({ user: req.user._id }).lean(),
+      Diary.find({ user: req.user._id }).lean(),
+      Habit.find({ user: req.user._id }).lean(),
+    ]);
+
+    const decryptedDiary = diaryEntries.map((e) => {
+      let content = e.content;
+      if (e.isEncrypted) {
+        try { content = decrypt(content); } catch { content = '[Could not decrypt]'; }
+      }
+      return { ...e, content, isEncrypted: false };
+    });
+
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      user: { id: String(req.user._id), name: req.user.name, email: req.user.email },
+      counts: { todos: todos.length, diary: decryptedDiary.length, habits: habits.length },
+      todos,
+      diary: decryptedDiary,
+      habits,
+    };
+
+    const json = JSON.stringify(payload);
+    const ciphertext = encrypt(json);
+
+    // The exported file is a small JSON envelope so a future restore route
+    // can sniff version + algorithm without trying to decrypt blindly.
+    const envelope = {
+      app: 'todo-diary-v2',
+      format: 'aes-256-gcm-envelope',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      // ciphertext is "iv:authTag:hex" — same format as encrypt() returns.
+      ciphertext,
+    };
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="backup-${Date.now()}.tdb.json"`,
+    );
+    res.send(JSON.stringify(envelope, null, 2));
+  } catch (err) {
+    console.error('Backup export error:', err.message);
+    res.status(500).json({ success: false, message: 'Backup failed' });
   }
 });
 

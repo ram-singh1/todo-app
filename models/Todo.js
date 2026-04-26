@@ -72,7 +72,10 @@ const todoSchema = new mongoose.Schema({
   },
   recurring: {
     enabled: { type: Boolean, default: false },
-    pattern: { type: String, enum: ['daily', 'weekly', 'monthly', 'yearly'], default: 'daily' },
+    pattern: { type: String, enum: ['daily', 'weekly', 'monthly', 'yearly', 'custom'], default: 'daily' },
+    // For pattern='custom': repeat every N days. For 'weekly' it acts as
+    // an extra multiplier so users can do "every 2 weeks" if needed.
+    interval: { type: Number, default: 1, min: 1, max: 365 },
     endDate: { type: Date },
   },
   notes: {

@@ -118,6 +118,25 @@ router.post('/', [
   }
 });
 
+// Compute the next due date for a recurring todo. Returns null if the
+// recurrence has hit its end date (caller should NOT spawn another instance).
+function nextDueDate(todo) {
+  const r = todo.recurring || {};
+  const interval = Math.max(1, r.interval || 1);
+  const base = todo.dueDate ? new Date(todo.dueDate) : new Date();
+  let next;
+  switch (r.pattern) {
+    case 'daily':   next = new Date(base.getTime() + interval * 86400000); break;
+    case 'weekly':  next = new Date(base.getTime() + interval * 7 * 86400000); break;
+    case 'monthly': next = new Date(base); next.setMonth(next.getMonth() + interval); break;
+    case 'yearly':  next = new Date(base); next.setFullYear(next.getFullYear() + interval); break;
+    case 'custom':  next = new Date(base.getTime() + interval * 86400000); break;
+    default:        return null;
+  }
+  if (r.endDate && next > new Date(r.endDate)) return null;
+  return next;
+}
+
 // @route   PUT /api/todos/:id
 router.put('/:id', async (req, res) => {
   try {
@@ -126,7 +145,8 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Todo not found' });
     }
 
-    if (req.body.completed && !todo.completed) {
+    const wasCompleting = req.body.completed && !todo.completed;
+    if (wasCompleting) {
       req.body.completedAt = new Date();
     }
     if (req.body.completed === false) {
@@ -134,7 +154,38 @@ router.put('/:id', async (req, res) => {
     }
 
     todo = await Todo.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    res.json({ success: true, todo });
+
+    // Auto-spawn next occurrence on completion of a recurring task.
+    // We create a fresh, uncompleted clone with the next due date — keeps
+    // history intact (the completed one stays as a record) and the new one
+    // shows up in the user's list immediately.
+    let spawned = null;
+    if (wasCompleting && todo.recurring?.enabled) {
+      const next = nextDueDate(todo);
+      if (next) {
+        const clone = todo.toObject();
+        delete clone._id;
+        delete clone.createdAt;
+        delete clone.updatedAt;
+        clone.completed = false;
+        clone.completedAt = null;
+        clone.dueDate = next;
+        // Reset reminder.sent so notifications re-fire for the new instance.
+        if (clone.reminder?.enabled && clone.reminder?.time) {
+          // Shift the reminder by the same delta the due date moved.
+          const delta = next.getTime() - new Date(todo.dueDate || next).getTime();
+          clone.reminder = {
+            ...clone.reminder,
+            time: new Date(new Date(clone.reminder.time).getTime() + delta),
+            sent: false,
+          };
+        }
+        clone.subtasks = (clone.subtasks || []).map((s) => ({ title: s.title, completed: false }));
+        spawned = await Todo.create(clone);
+      }
+    }
+
+    res.json({ success: true, todo, spawned });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -199,6 +250,31 @@ router.delete('/completed/clear', async (req, res) => {
     res.json({ success: true, deleted: result.deletedCount });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   POST /api/todos/reorder
+// Body: { ids: [todoId, ...] } — array in the new desired order.
+// We assign `order` = index so a sort by `order` ASC produces the same
+// list on the next fetch. Bulk write keeps it to one round-trip.
+router.post('/reorder', async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'ids array required' });
+    }
+    const ops = ids.map((id, i) => ({
+      updateOne: {
+        // Scope by user so a malicious payload can't reorder another
+        // person's tasks.
+        filter: { _id: id, user: req.user._id },
+        update: { order: i },
+      },
+    }));
+    const result = await Todo.bulkWrite(ops);
+    res.json({ success: true, modified: result.modifiedCount });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

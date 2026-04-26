@@ -175,7 +175,7 @@ router.get('/mood-trends', requirePremium, async (req, res) => {
   }
 });
 
-// @route   GET /api/analytics/insights (Premium - AI-driven insights)
+// @route   GET /api/analytics/insights (Premium - rule-based insights)
 router.get('/insights', requirePremium, async (req, res) => {
   try {
     const userId = req.user._id;
@@ -205,10 +205,10 @@ router.get('/insights', requirePremium, async (req, res) => {
       insights.push({ emoji: '✍️', title: 'Journal More', description: `Only ${diaries.length} entries this month. Daily writing boosts clarity.`, severity: 'suggestion' });
     }
     if (avgWordsPerEntry > 300) {
-      insights.push({ emoji: '🧠', title: 'Deep Thinker', description: `Avg ${avgWordsPerEntry} words per entry — rich, thoughtful journaling.`, severity: 'positive' });
+      insights.push({ emoji: '📖', title: 'Deep Thinker', description: `Avg ${avgWordsPerEntry} words per entry — rich, thoughtful journaling.`, severity: 'positive' });
     }
     if (pending > 20) {
-      insights.push({ emoji: '🎯', title: 'Prioritize', description: `You have ${pending} pending tasks. Try the AI Prioritize tool.`, severity: 'warning' });
+      insights.push({ emoji: '🎯', title: 'Prioritize', description: `You have ${pending} pending tasks. Sort them by urgency and pick the next small action.`, severity: 'warning' });
     }
     if (req.user.streak?.current >= 7) {
       insights.push({ emoji: '🔥', title: `${req.user.streak.current}-Day Streak`, description: 'You are on fire! Keep it up.', severity: 'positive' });
