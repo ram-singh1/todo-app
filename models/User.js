@@ -37,7 +37,10 @@ const userSchema = new mongoose.Schema({
     default: 'aurora',
     enum: ['aurora', 'sunset', 'ocean', 'forest', 'lavender', 'midnight', 'rose', 'cosmic',
            'zen', 'rainyDay', 'sakura', 'northern', 'warmCandle', 'deepSea', 'dreamyPastel', 'starryNight',
-           'mountainGlass', 'sunriseScene', 'galaxyScene', 'twilightScene', 'emeraldScene', 'coralScene',
+           'mountainGlass', 'forestGlass', 'spaceGlass', 'cityGlass', 'desertGlass',
+           'lakeSunriseGlass', 'rainGardenGlass', 'auroraOceanGlass', 'desertMoonGlass',
+           'sunriseScene', 'galaxyScene', 'twilightScene', 'emeraldScene', 'coralScene',
+           'cherryBloomScene', 'tropicalBeachScene', 'lavenderFieldsScene', 'mistyMountainScene', 'velvetNightScene',
            'daylight', 'paperMint', 'cream', 'porcelain'],
   },
   notificationsEnabled: {

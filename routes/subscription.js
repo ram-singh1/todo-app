@@ -34,7 +34,7 @@ const PLANS = [
     badge: 'MOST POPULAR',
     features: [
       'Unlimited todos & entries',
-      'All 17 liquid glass themes',
+      'All liquid glass themes',
       'Advanced analytics & charts',
       'PDF & Markdown export',
       'Widget-ready dashboard',
