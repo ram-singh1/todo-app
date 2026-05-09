@@ -81,6 +81,23 @@ const userSchema = new mongoose.Schema({
   referredBy: { type: String },
 
   lastLoginAt: { type: Date },
+
+  // Password reset (one-shot token, expires in 60 minutes)
+  passwordResetToken: { type: String, select: false },
+  passwordResetExpires: { type: Date, select: false },
+
+  // User-defined expense categories. We persist label + emoji + color so the
+  // picker re-surfaces them. Limited to 30 to avoid runaway lists.
+  customExpenseCategories: {
+    type: [{
+      id: { type: String, required: true, maxlength: 32 },     // slug
+      label: { type: String, required: true, maxlength: 40 },
+      emoji: { type: String, default: '🔸', maxlength: 4 },
+      color: { type: String, default: '#94A3B8', maxlength: 9 },
+    }],
+    default: [],
+    validate: [(v) => v.length <= 30, 'At most 30 custom categories'],
+  },
 }, {
   timestamps: true,
 });
@@ -133,6 +150,7 @@ userSchema.methods.publicProfile = function () {
     usage: this.usage,
     streak: this.streak,
     referralCode: this.referralCode,
+    customExpenseCategories: this.customExpenseCategories || [],
     createdAt: this.createdAt,
   };
 };

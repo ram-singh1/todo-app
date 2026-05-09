@@ -21,7 +21,7 @@ function normalizeDate(input) {
 router.get('/', async (req, res) => {
   try {
     const { archived } = req.query;
-    const filter = { user: req.user._id };
+    const filter = { user: req.user._id, deletedAt: null };
     if (archived !== undefined) filter.archived = archived === 'true';
     else filter.archived = false;
 
@@ -41,7 +41,7 @@ router.get('/', async (req, res) => {
 // Aggregate dashboard numbers: total active, streak king, today's completions.
 router.get('/stats', async (req, res) => {
   try {
-    const habits = await Habit.find({ user: req.user._id, archived: false });
+    const habits = await Habit.find({ user: req.user._id, archived: false, deletedAt: null });
     const today = new Date().toISOString().slice(0, 10);
     let doneToday = 0;
     let bestStreak = 0;
@@ -67,7 +67,7 @@ router.get('/stats', async (req, res) => {
 // @route   GET /api/habits/:id
 router.get('/:id', async (req, res) => {
   try {
-    const habit = await Habit.findOne({ _id: req.params.id, user: req.user._id });
+    const habit = await Habit.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!habit) return res.status(404).json({ success: false, message: 'Habit not found' });
     res.json({
       success: true,
@@ -95,7 +95,7 @@ router.post(
       // Free-tier habit cap. Pro/Trial/Ultimate get unlimited.
       const limits = getLimitsForPlan(req.user.subscription?.plan || 'free');
       if (Number.isFinite(limits.maxHabits)) {
-        const existing = await Habit.countDocuments({ user: req.user._id, archived: false });
+        const existing = await Habit.countDocuments({ user: req.user._id, archived: false, deletedAt: null });
         if (existing >= limits.maxHabits) {
           return res.status(402).json({
             success: false,
@@ -124,7 +124,7 @@ router.put('/:id', async (req, res) => {
     // /checkin endpoints so we can dedupe, validate dates, and keep semantics.
     const { checkIns, user, _id, ...updates } = req.body;
     const habit = await Habit.findOneAndUpdate(
-      { _id: req.params.id, user: req.user._id },
+      { _id: req.params.id, user: req.user._id, deletedAt: null },
       updates,
       { new: true, runValidators: true },
     );
@@ -144,7 +144,7 @@ router.put('/:id', async (req, res) => {
 router.post('/:id/checkin', async (req, res) => {
   try {
     const date = normalizeDate(req.body?.date);
-    const habit = await Habit.findOne({ _id: req.params.id, user: req.user._id });
+    const habit = await Habit.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!habit) return res.status(404).json({ success: false, message: 'Habit not found' });
 
     if (!habit.checkIns.includes(date)) {
@@ -166,7 +166,7 @@ router.post('/:id/checkin', async (req, res) => {
 router.delete('/:id/checkin', async (req, res) => {
   try {
     const date = normalizeDate(req.body?.date);
-    const habit = await Habit.findOne({ _id: req.params.id, user: req.user._id });
+    const habit = await Habit.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!habit) return res.status(404).json({ success: false, message: 'Habit not found' });
 
     habit.checkIns = habit.checkIns.filter((d) => d !== date);
@@ -181,14 +181,18 @@ router.delete('/:id/checkin', async (req, res) => {
   }
 });
 
-// @route   DELETE /api/habits/:id
+// @route   DELETE /api/habits/:id  — soft delete (recoverable from Trash)
 router.delete('/:id', async (req, res) => {
   try {
-    const result = await Habit.deleteOne({ _id: req.params.id, user: req.user._id });
-    if (result.deletedCount === 0) {
+    const habit = await Habit.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id, deletedAt: null },
+      { $set: { deletedAt: new Date() } },
+      { new: true }
+    );
+    if (!habit) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
-    res.json({ success: true });
+    res.json({ success: true, message: 'Habit moved to trash' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

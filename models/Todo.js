@@ -109,12 +109,14 @@ const todoSchema = new mongoose.Schema({
       'A task can have at most 10 attachments',
     ],
   },
+  deletedAt: { type: Date, default: null, index: true },
 }, {
   timestamps: true,
 });
 
 todoSchema.index({ user: 1, completed: 1, dueDate: 1 });
 todoSchema.index({ user: 1, category: 1 });
+todoSchema.index({ user: 1, deletedAt: 1 });
 todoSchema.index({ 'reminder.enabled': 1, 'reminder.time': 1, 'reminder.sent': 1 });
 
 module.exports = mongoose.model('Todo', todoSchema);

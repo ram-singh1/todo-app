@@ -56,11 +56,13 @@ const habitSchema = new mongoose.Schema({
   checkIns: [{ type: String }],
   archived: { type: Boolean, default: false },
   order: { type: Number, default: 0 },
+  deletedAt: { type: Date, default: null, index: true },
 }, {
   timestamps: true,
 });
 
 habitSchema.index({ user: 1, archived: 1 });
+habitSchema.index({ user: 1, deletedAt: 1 });
 
 // Compute current/longest streak from sorted check-in dates. We treat an
 // unbroken run of consecutive days ending at "today or yesterday" as the

@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
       page = 1, limit = 20,
     } = req.query;
 
-    const filter = { user: req.user._id };
+    const filter = { user: req.user._id, deletedAt: null };
     if (mood) filter.mood = mood;
     if (favorite === 'true') filter.isFavorite = true;
     if (startDate || endDate) {
@@ -64,16 +64,16 @@ router.get('/stats', async (req, res) => {
   try {
     const userId = req.user._id;
     const [total, favorites, moodStats] = await Promise.all([
-      Diary.countDocuments({ user: userId }),
-      Diary.countDocuments({ user: userId, isFavorite: true }),
+      Diary.countDocuments({ user: userId, deletedAt: null }),
+      Diary.countDocuments({ user: userId, deletedAt: null, isFavorite: true }),
       Diary.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userId, deletedAt: null } },
         { $group: { _id: '$mood', count: { $sum: 1 } } },
       ]),
     ]);
 
     // Calculate streak
-    const recentEntries = await Diary.find({ user: userId })
+    const recentEntries = await Diary.find({ user: userId, deletedAt: null })
       .select('createdAt')
       .sort({ createdAt: -1 })
       .limit(365);
@@ -111,7 +111,7 @@ router.get('/stats', async (req, res) => {
 // @route   GET /api/diary/:id
 router.get('/:id', async (req, res) => {
   try {
-    const entry = await Diary.findOne({ _id: req.params.id, user: req.user._id });
+    const entry = await Diary.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }
@@ -145,7 +145,7 @@ router.post('/', [
 
     const limits = getLimitsForPlan(req.user.subscription?.plan || 'free');
     if (limits.maxDiaryEntries !== Infinity) {
-      const count = await Diary.countDocuments({ user: req.user._id });
+      const count = await Diary.countDocuments({ user: req.user._id, deletedAt: null });
       if (count >= limits.maxDiaryEntries) {
         return res.status(402).json({
           success: false,
@@ -179,7 +179,7 @@ router.post('/', [
 // @route   PUT /api/diary/:id
 router.put('/:id', async (req, res) => {
   try {
-    let entry = await Diary.findOne({ _id: req.params.id, user: req.user._id });
+    let entry = await Diary.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }
@@ -209,14 +209,18 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// @route   DELETE /api/diary/:id
+// @route   DELETE /api/diary/:id  — soft delete
 router.delete('/:id', async (req, res) => {
   try {
-    const entry = await Diary.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    const entry = await Diary.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id, deletedAt: null },
+      { $set: { deletedAt: new Date() } },
+      { new: true }
+    );
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }
-    res.json({ success: true, message: 'Entry deleted' });
+    res.json({ success: true, message: 'Entry moved to trash' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -225,7 +229,7 @@ router.delete('/:id', async (req, res) => {
 // @route   PUT /api/diary/:id/favorite
 router.put('/:id/favorite', async (req, res) => {
   try {
-    const entry = await Diary.findOne({ _id: req.params.id, user: req.user._id });
+    const entry = await Diary.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Entry not found' });
     }

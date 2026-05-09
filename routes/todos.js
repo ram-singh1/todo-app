@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
       page = 1, limit = 50,
     } = req.query;
 
-    const filter = { user: req.user._id };
+    const filter = { user: req.user._id, deletedAt: null };
     if (category) filter.category = category;
     if (priority) filter.priority = priority;
     if (completed !== undefined) filter.completed = completed === 'true';
@@ -58,16 +58,16 @@ router.get('/stats', async (req, res) => {
   try {
     const userId = req.user._id;
     const [total, completed, pending, overdue, byCategory, byPriority] = await Promise.all([
-      Todo.countDocuments({ user: userId }),
-      Todo.countDocuments({ user: userId, completed: true }),
-      Todo.countDocuments({ user: userId, completed: false }),
-      Todo.countDocuments({ user: userId, completed: false, dueDate: { $lt: new Date() } }),
+      Todo.countDocuments({ user: userId, deletedAt: null }),
+      Todo.countDocuments({ user: userId, deletedAt: null, completed: true }),
+      Todo.countDocuments({ user: userId, deletedAt: null, completed: false }),
+      Todo.countDocuments({ user: userId, deletedAt: null, completed: false, dueDate: { $lt: new Date() } }),
       Todo.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userId, deletedAt: null } },
         { $group: { _id: '$category', count: { $sum: 1 } } },
       ]),
       Todo.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userId, deletedAt: null } },
         { $group: { _id: '$priority', count: { $sum: 1 } } },
       ]),
     ]);
@@ -140,7 +140,7 @@ function nextDueDate(todo) {
 // @route   PUT /api/todos/:id
 router.put('/:id', async (req, res) => {
   try {
-    let todo = await Todo.findOne({ _id: req.params.id, user: req.user._id });
+    let todo = await Todo.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!todo) {
       return res.status(404).json({ success: false, message: 'Todo not found' });
     }
@@ -191,14 +191,18 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// @route   DELETE /api/todos/:id
+// @route   DELETE /api/todos/:id  — soft delete (restorable from trash)
 router.delete('/:id', async (req, res) => {
   try {
-    const todo = await Todo.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    const todo = await Todo.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id, deletedAt: null },
+      { $set: { deletedAt: new Date() } },
+      { new: true }
+    );
     if (!todo) {
       return res.status(404).json({ success: false, message: 'Todo not found' });
     }
-    res.json({ success: true, message: 'Todo deleted' });
+    res.json({ success: true, message: 'Todo moved to trash' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -209,7 +213,7 @@ router.put('/:id/subtask', [
   body('title').trim().notEmpty().withMessage('Subtask title is required'),
 ], async (req, res) => {
   try {
-    const todo = await Todo.findOne({ _id: req.params.id, user: req.user._id });
+    const todo = await Todo.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!todo) {
       return res.status(404).json({ success: false, message: 'Todo not found' });
     }
@@ -225,7 +229,7 @@ router.put('/:id/subtask', [
 // @route   PUT /api/todos/:id/subtask/:subtaskId/toggle
 router.put('/:id/subtask/:subtaskId/toggle', async (req, res) => {
   try {
-    const todo = await Todo.findOne({ _id: req.params.id, user: req.user._id });
+    const todo = await Todo.findOne({ _id: req.params.id, user: req.user._id, deletedAt: null });
     if (!todo) {
       return res.status(404).json({ success: false, message: 'Todo not found' });
     }
@@ -243,11 +247,14 @@ router.put('/:id/subtask/:subtaskId/toggle', async (req, res) => {
   }
 });
 
-// @route   DELETE /api/todos/completed/clear
+// @route   DELETE /api/todos/completed/clear  — soft delete completed todos
 router.delete('/completed/clear', async (req, res) => {
   try {
-    const result = await Todo.deleteMany({ user: req.user._id, completed: true });
-    res.json({ success: true, deleted: result.deletedCount });
+    const result = await Todo.updateMany(
+      { user: req.user._id, completed: true, deletedAt: null },
+      { $set: { deletedAt: new Date() } }
+    );
+    res.json({ success: true, deleted: result.modifiedCount });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }

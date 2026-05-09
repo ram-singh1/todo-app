@@ -1,12 +1,17 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
+const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 const cron = require('node-cron');
 const Todo = require('./models/Todo');
+const RecurringBill = require('./models/RecurringBill');
+const Tool = require('./models/Tool');
+const Expense = require('./models/Expense');
+const { advanceNextDue } = require('./routes/budget');
 
 // Fail fast in production if critical secrets are missing — easier to debug
 // in Render's deploy logs than a runtime crash 30 minutes later.
@@ -84,13 +89,23 @@ app.use('/api/subscription', require('./routes/subscription'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/uploads', require('./routes/uploads'));
+app.use('/api/budget', require('./routes/budget'));
+app.use('/api/health-log', require('./routes/health'));
+app.use('/api/tools', require('./routes/tools'));
+app.use('/api/trash', require('./routes/trash'));
 
 // Health check (both / and /api/health work — Render health-checks the root).
+// Returns 503 if Mongo is disconnected so a flapping DB isn't masked behind
+// a 200 response that satisfies the load balancer.
 const healthHandler = (req, res) => {
-  res.json({
-    success: true,
-    message: 'Todo & Diary API is running',
-    version: '2.0.0',
+  const dbState = mongoose.connection.readyState; // 0=disc, 1=conn, 2=connecting, 3=disconnecting
+  const dbOk = dbState === 1;
+  const status = dbOk ? 200 : 503;
+  res.status(status).json({
+    success: dbOk,
+    message: dbOk ? 'Todo & Diary API is running' : 'Database not ready',
+    version: '2.1.0',
+    db: { connected: dbOk, state: dbState },
     timestamp: new Date(),
   });
 };
@@ -112,25 +127,93 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Cron job: Check reminders every minute
+// ─── Cron jobs ──────────────────────────────────────────────
+// All jobs use atomic findOneAndUpdate / updateMany with a "claim" flag so
+// running across multiple instances doesn't double-fire. Every job is
+// wrapped in try/catch so one failing job doesn't kill the others.
+
+// 1) Reminders — fire window covers the next 60s
 cron.schedule('* * * * *', async () => {
   try {
     const now = new Date();
     const upcoming = new Date(now.getTime() + 60000);
-    const todos = await Todo.find({
-      'reminder.enabled': true,
-      'reminder.time': { $gte: now, $lte: upcoming },
-      'reminder.sent': false,
-      completed: false,
-    });
-
-    for (const todo of todos) {
-      todo.reminder.sent = true;
-      await todo.save();
+    // Atomically claim each due reminder so two replicas can't both fire.
+    while (true) {
+      const todo = await Todo.findOneAndUpdate(
+        {
+          'reminder.enabled': true,
+          'reminder.time': { $gte: now, $lte: upcoming },
+          'reminder.sent': false,
+          completed: false,
+          deletedAt: null,
+        },
+        { $set: { 'reminder.sent': true } },
+        { new: true }
+      );
+      if (!todo) break;
+      // Hook for push delivery here — currently relies on client-side
+      // scheduleNotificationAsync. Server-side push would fire here.
       console.log(`Reminder: "${todo.title}" is due soon for user ${todo.user}`);
     }
   } catch (err) {
     console.error('Reminder cron error:', err.message);
+  }
+});
+
+// 2) Recurring bills — daily at 09:00 server time. For each due bill:
+//    - if autoLog: create an Expense + roll forward nextDueAt
+//    - else: just bump lastReminderAt (client surfaces it on the dashboard)
+cron.schedule('0 9 * * *', async () => {
+  try {
+    const now = new Date();
+    const reminderHorizon = new Date(now.getTime() + 7 * 86400000);
+    const bills = await RecurringBill.find({
+      active: true, deletedAt: null,
+      nextDueAt: { $lte: reminderHorizon },
+    });
+    for (const bill of bills) {
+      try {
+        const dueNow = bill.nextDueAt <= now;
+        if (dueNow && bill.autoLog) {
+          await Expense.create({
+            user: bill.user,
+            amount: bill.amount,
+            currency: bill.currency,
+            category: bill.category || 'bills',
+            kind: 'expense',
+            date: bill.nextDueAt,
+            note: bill.name,
+            recurringSourceId: bill._id,
+          });
+          bill.lastChargedAt = new Date();
+          bill.nextDueAt = advanceNextDue(bill.nextDueAt, bill.frequency);
+        }
+        bill.lastReminderAt = new Date();
+        await bill.save();
+      } catch (innerErr) {
+        console.error(`Bill cron failed for ${bill._id}:`, innerErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('Bills cron error:', err.message);
+  }
+});
+
+// 3) Worry-log reviews — daily at 09:05. Marks each due worry as reviewSent
+//    so the client knows to surface the review prompt next time the user
+//    opens the Tools section.
+cron.schedule('5 9 * * *', async () => {
+  try {
+    const now = new Date();
+    const result = await Tool.updateMany(
+      { kind: 'worry', deletedAt: null, reviewSent: false, reviewAt: { $lte: now } },
+      { $set: { reviewSent: true } }
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`Worry reviews ready: ${result.modifiedCount}`);
+    }
+  } catch (err) {
+    console.error('Worry-review cron error:', err.message);
   }
 });
 

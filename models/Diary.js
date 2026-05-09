@@ -79,6 +79,7 @@ const diarySchema = new mongoose.Schema({
     keywords: [String],
     summary: String,
   },
+  deletedAt: { type: Date, default: null, index: true },
 }, {
   timestamps: true,
 });
@@ -86,5 +87,6 @@ const diarySchema = new mongoose.Schema({
 diarySchema.index({ user: 1, createdAt: -1 });
 diarySchema.index({ user: 1, mood: 1 });
 diarySchema.index({ user: 1, isFavorite: 1 });
+diarySchema.index({ user: 1, deletedAt: 1 });
 
 module.exports = mongoose.model('Diary', diarySchema);

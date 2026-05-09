@@ -14,7 +14,7 @@ router.get('/summary', async (req, res) => {
     const userId = req.user._id;
     const [todoStats, diaryStats] = await Promise.all([
       Todo.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userId, deletedAt: { $in: [null, undefined] } } },
         {
           $group: {
             _id: null,
@@ -32,7 +32,7 @@ router.get('/summary', async (req, res) => {
         },
       ]),
       Diary.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userId, deletedAt: { $in: [null, undefined] } } },
         {
           $group: {
             _id: null,
@@ -71,7 +71,7 @@ router.get('/productivity', requirePremium, async (req, res) => {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const daily = await Todo.aggregate([
-      { $match: { user: userId, completedAt: { $gte: since } } },
+      { $match: { user: userId, deletedAt: { $in: [null, undefined] }, completedAt: { $gte: since } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
@@ -82,18 +82,18 @@ router.get('/productivity', requirePremium, async (req, res) => {
     ]);
 
     const byCategory = await Todo.aggregate([
-      { $match: { user: userId, completedAt: { $gte: since } } },
+      { $match: { user: userId, deletedAt: { $in: [null, undefined] }, completedAt: { $gte: since } } },
       { $group: { _id: '$category', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
 
     const byPriority = await Todo.aggregate([
-      { $match: { user: userId, completedAt: { $gte: since } } },
+      { $match: { user: userId, deletedAt: { $in: [null, undefined] }, completedAt: { $gte: since } } },
       { $group: { _id: '$priority', count: { $sum: 1 } } },
     ]);
 
     const byHour = await Todo.aggregate([
-      { $match: { user: userId, completedAt: { $gte: since } } },
+      { $match: { user: userId, deletedAt: { $in: [null, undefined] }, completedAt: { $gte: since } } },
       {
         $group: {
           _id: { $hour: '$completedAt' },
@@ -129,7 +129,7 @@ router.get('/mood-trends', requirePremium, async (req, res) => {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const trends = await Diary.aggregate([
-      { $match: { user: userId, createdAt: { $gte: since } } },
+      { $match: { user: userId, deletedAt: { $in: [null, undefined] }, createdAt: { $gte: since } } },
       {
         $group: {
           _id: {
@@ -143,7 +143,7 @@ router.get('/mood-trends', requirePremium, async (req, res) => {
     ]);
 
     const distribution = await Diary.aggregate([
-      { $match: { user: userId, createdAt: { $gte: since } } },
+      { $match: { user: userId, deletedAt: { $in: [null, undefined] }, createdAt: { $gte: since } } },
       { $group: { _id: '$mood', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
@@ -182,8 +182,8 @@ router.get('/insights', requirePremium, async (req, res) => {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [todos, diaries] = await Promise.all([
-      Todo.find({ user: userId, createdAt: { $gte: since } }),
-      Diary.find({ user: userId, createdAt: { $gte: since } }).select('-content'),
+      Todo.find({ user: userId, deletedAt: null, createdAt: { $gte: since } }),
+      Diary.find({ user: userId, deletedAt: null, createdAt: { $gte: since } }).select('-content'),
     ]);
 
     const completed = todos.filter(t => t.completed).length;
